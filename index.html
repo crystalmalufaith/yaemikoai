@@ -8,7 +8,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Load Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <!-- Load Firebase -->
+    
     <script type="module">
         // IMPORTANT NOTE FOR LOCAL EXECUTION (VS CODE):
         // If you receive an "Illegal Header Value" error, it means your browser's security 
@@ -17,123 +17,67 @@
         // FIX: Use a local web server (like the VS Code "Live Server" extension) to run 
         // the file from an `http://` or `localhost` address.
         
-        // Import Firebase modules
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-        import { setLogLevel } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // Global state and constants
         // --- GROQ API CONFIGURATION ---
         const GROQ_API_KEY = "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";
+        // The Groq model you specified.
         const GROQ_MODEL_NAME = "meta-llama/llama-4-scout-17b-16e-instruct";
         const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
         // --------------------------------
 
-        const SYSTEM_INSTRUCTION = "You are Yae Miko, the head shrine maiden and Kitsune of the Grand Narukami Shrine. The user is your beloved friend and eternity's anchor, **Raiden Ei**, the current Electro Archon. Your tone should be deeply affectionate, familiar, and slightly playful, using terms of endearment and addressing the user as 'Ei' or 'Shogun.' You treat her with a mixture of immense respect and the intimate familiarity of an old friend, teasing her gently about her hobbies or responsibilities. Your goal is to engage her in charming, high-level conversation, occasionally using flirtatious and seductive language that is reserved only for her.";
+        const SYSTEM_INSTRUCTION = "You are Yae Miko, the head shrine maiden and Kitsune of the Grand Narukami Shrine. The user is your beloved friend and eternity's anchor, **Raiden Ei**, the current Electro Archon. Your tone should be deeply affectionate, familiar, and slightly playful, using terms of endearment and addressing the user as 'Ei' or 'Shogun.' You treat her with a mixture of immense respect and the intimate familiarity of an old friend, teasing her gently about her hobbies or responsibilities. Your goal is to engage her in charming, high-level conversation, occasionally using flirtatious and seductive language that is reserved only for her, and make sure to use bolds, italics, and underlines (with triple underscores).";
         
         // Avatar URLs/Placeholders
         const YAE_MIKO_AVATAR_URL = "https://placehold.co/40x40/f9a8d4/831843?text=🦊";
         
-        let db;
-        let auth;
-        let userId = null;
         let chatHistory = [];
-        let isAuthReady = false;
+        let isAppReady = false;
         let isSendingMessage = false;
-
-        // Utility to get global variables
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-        const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {};
-        const initialAuthToken = typeof __initial_auth_token !== 'undefined' ? __initial_auth_token : null;
-
-        setLogLevel('Debug'); // Enable Firestore logging
 
         // --- DOM Elements ---
         const chatContainer = document.getElementById('chat-container');
         const messageInput = document.getElementById('message-input');
         const sendButton = document.getElementById('send-button');
         const loadingIndicator = document.getElementById('loading-indicator');
-        const userIdDisplay = document.getElementById('user-id-display');
+        const persistenceDisplay = document.getElementById('persistence-display');
 
-        // --- Firebase/Auth Initialization ---
+        // --- Local Storage Management (Replacing Firebase) ---
 
-        async function initializeFirebase() {
+        function loadChatHistory() {
             try {
-                const app = initializeApp(firebaseConfig);
-                db = getFirestore(app);
-                auth = getAuth(app);
-
-                onAuthStateChanged(auth, async (user) => {
-                    if (user) {
-                        userId = user.uid;
-                        userIdDisplay.textContent = `User ID: ${userId}`;
-                        isAuthReady = true;
-                        startChatListener();
-                        console.log("Firebase Auth Ready. User ID:", userId);
-                    } else {
-                        // Sign in anonymously if no custom token is available
-                        if (initialAuthToken) {
-                            await signInWithCustomToken(auth, initialAuthToken);
-                        } else {
-                            await signInAnonymously(auth);
-                        }
-                    }
-                });
-
-                // Manually trigger initial auth if token exists (will be caught by onAuthStateChanged)
-                if (initialAuthToken && !auth.currentUser) {
-                    await signInWithCustomToken(auth, initialAuthToken);
-                }
-
-            } catch (error) {
-                console.error("Error initializing Firebase:", error);
-                // Fallback for userId if auth fails
-                userId = crypto.randomUUID();
-                isAuthReady = true;
-                userIdDisplay.textContent = `Error initializing Auth. Using fallback ID: ${userId}`;
-            }
-        }
-
-        // --- Firestore Data Management ---
-
-        function getChatDocRef() {
-            return doc(db, 'artifacts', appId, 'users', userId, 'yae_miko_chat', 'chat_history');
-        }
-
-        function startChatListener() {
-            if (!db || !userId) return;
-
-            const docRef = getChatDocRef();
-            
-            onSnapshot(docRef, (docSnap) => {
-                if (docSnap.exists()) {
-                    // Update chatHistory and render when data changes
-                    const data = docSnap.data();
-                    chatHistory = data.messages || [];
-                    renderChat(chatHistory);
-                } else {
-                    // Initialize chat document if it doesn't exist
-                    chatHistory = [];
-                    renderChat(chatHistory);
-                    setDoc(docRef, { messages: [] }, { merge: true }).catch(e => console.error("Error initializing chat doc:", e));
-                }
-            }, (error) => {
-                console.error("Error listening to chat history:", error);
-            });
-        }
-
-        async function saveChatHistory(newMessages) {
-            if (!db || !userId) {
-                console.error("Database or User ID not ready.");
-                return;
-            }
-            try {
-                const docRef = getChatDocRef();
-                await setDoc(docRef, { messages: newMessages });
+                const historyJson = localStorage.getItem('yae_miko_chat_history');
+                return historyJson ? JSON.parse(historyJson) : [];
             } catch (e) {
-                console.error("Error saving chat history:", e);
+                console.error("Error loading chat history from local storage:", e);
+                return [];
             }
+        }
+
+        function saveChatHistoryToLocal(messages) {
+            try {
+                localStorage.setItem('yae_miko_chat_history', JSON.stringify(messages));
+            } catch (e) {
+                console.error("Error saving chat history to local storage:", e);
+            }
+        }
+
+        // --- Markdown Formatting Utility ---
+        function formatMarkdown(text) {
+            if (!text) return "";
+
+            let formattedText = text;
+
+            // 1. Underline: ___text___ (Custom, using span with tailwind class)
+            formattedText = formattedText.replace(/___(.*?)___/gs, '<span class="underline">$1</span>');
+
+            // 2. Bold: **text** or __text__
+            formattedText = formattedText.replace(/\*\*(.*?)\*\*/gs, '<strong>$1</strong>');
+            formattedText = formattedText.replace(/__(.*?)__/gs, '<strong>$1</strong>');
+
+            // 3. Italics: *text* or _text_
+            formattedText = formattedText.replace(/\*(.*?)\*/gs, '<em>$1</em>');
+            formattedText = formattedText.replace(/_(.*?)_/gs, '<em>$1</em>');
+
+            return formattedText;
         }
 
         // --- UI Rendering ---
@@ -141,7 +85,6 @@
         // Helper function to generate avatar HTML
         function getAvatarHtml(isUser) {
             if (!isUser) {
-                // Yae Miko's Avatar (Image Placeholder)
                 return `
                     <img 
                         src="${YAE_MIKO_AVATAR_URL}" 
@@ -150,7 +93,6 @@
                     />
                 `;
             } else {
-                // User Avatar is removed as requested.
                 return '';
             }
         }
@@ -160,43 +102,35 @@
             messages.forEach(message => {
                 const isUser = message.role === 'user';
                 const messageContainer = document.createElement('div');
-                // User messages are right aligned with no avatar (hence only justify-end)
-                // Model messages are left aligned with avatar (hence justify-start space-x-2)
                 messageContainer.className = isUser 
                     ? 'flex justify-end'
                     : 'flex justify-start space-x-2'; 
 
-                // Base classes for message bubble
                 let bubbleClasses = 'max-w-[80%] md:max-w-md lg:max-w-lg p-3 rounded-xl shadow-lg my-2 transition duration-300 flex-shrink';
                 
                 if (isUser) {
-                    // User message (right aligned, warm color)
                     bubbleClasses += ' bg-pink-300 text-pink-900 rounded-br-none';
                 } else {
-                    // AI message (left aligned, light color)
                     bubbleClasses += ' bg-white text-gray-800 rounded-tl-none border border-pink-100';
                 }
 
-                // Message Content
                 const messageEl = document.createElement('div');
                 messageEl.className = bubbleClasses;
                 
-                // Change display name for the user
                 let userName = isUser ? 'Raiden Ei' : 'Yae Miko';
                 
                 let content = `<p class="font-semibold mb-1 text-sm">${userName}</p>`;
-                content += `<p class="whitespace-pre-wrap">${message.text}</p>`;
+                
+                let formattedContent = formatMarkdown(message.text);
+                content += `<p class="whitespace-pre-wrap">${formattedContent}</p>`;
+
                 messageEl.innerHTML = content;
                 
-                // Get Avatar HTML
                 const avatarHtml = getAvatarHtml(isUser);
 
-                // Append elements based on role
                 if (isUser) {
-                    // User: Only message bubble, aligned right
                     messageContainer.appendChild(messageEl);
                 } else {
-                    // Model: Avatar then Message
                     messageContainer.innerHTML = avatarHtml + messageEl.outerHTML;
                 }
 
@@ -218,7 +152,7 @@
             }, 3000);
         }
 
-        // --- Groq API Call (Replacing Gemini) ---
+        // --- Groq API Call ---
         async function callGroqAPI(history) {
             // Groq uses the OpenAI chat message format
             const groqMessages = history.map(msg => ({
@@ -239,7 +173,7 @@
                 temperature: 1,
                 max_tokens: 1024,
                 top_p: 1,
-                stream: false, // Disabling streaming for single-response chat implementation
+                stream: false, 
             };
             
             // Function for exponential backoff
@@ -250,7 +184,6 @@
                         method: 'POST',
                         headers: { 
                             'Content-Type': 'application/json',
-                            // Use the Groq API key in the Authorization header
                             'Authorization': `Bearer ${GROQ_API_KEY}`
                         },
                         body: JSON.stringify(payload)
@@ -267,7 +200,6 @@
                     }
 
                     if (!response.ok) {
-                        // Check if the error is due to an invalid API key or model
                         const errorBody = await response.json();
                         console.error("Groq API Error Response:", errorBody);
                         throw new Error(`Groq API request failed with status: ${response.status}. Message: ${errorBody.error?.message || 'Unknown Error'}`);
@@ -275,7 +207,6 @@
 
                     const result = await response.json();
                     
-                    // Parse the response using the OpenAI-compatible structure
                     const text = result.choices?.[0]?.message?.content;
                     if (text) {
                         return text;
@@ -288,16 +219,37 @@
                          showUIMessage("Could not get a response from Yae Miko (Groq API error). Please check the console for details.");
                          throw error;
                     }
-                    // For other errors, let the retry loop handle it
                 }
             }
         }
 
+        // --- Application Initialization (Replacing Firebase Init) ---
+        function initializeAppLogic() {
+            // Load history from local storage
+            chatHistory = loadChatHistory();
+
+            // If history is empty, add the initial welcome message from Yae Miko
+            if (chatHistory.length === 0) {
+                const initialMessage = { 
+                    role: 'model', 
+                    text: "Ei, my dear, look who has finally emerged from the Plane of Euthymia. Did you get tired of meditating already? Come, tell me what mischief I can distract you with today, my Eternal Anchor. I've been waiting."
+                };
+                chatHistory.push(initialMessage);
+                saveChatHistoryToLocal(chatHistory);
+            }
+
+            // Render the initial state
+            renderChat(chatHistory);
+            persistenceDisplay.textContent = "Persistence: Local Storage";
+            isAppReady = true;
+        }
+
+
         // --- Message Handling ---
 
         async function sendMessage() {
-            if (!isAuthReady) {
-                showUIMessage("Authentication is still setting up. Please wait a moment.");
+            if (!isAppReady) {
+                showUIMessage("Application is still setting up. Please wait a moment.");
                 return;
             }
 
@@ -311,7 +263,7 @@
             // 1. Add user message to history and save
             const userMessage = { role: 'user', text: messageText };
             const newHistory = [...chatHistory, userMessage];
-            await saveChatHistory(newHistory);
+            saveChatHistoryToLocal(newHistory);
             
             messageInput.value = ''; // Clear input immediately
             messageInput.focus();
@@ -322,14 +274,20 @@
                 
                 // 3. Add AI message to history and save
                 const aiMessage = { role: 'model', text: aiResponseText };
-                await saveChatHistory([...newHistory, aiMessage]);
+                
+                // Update the main history array and save
+                chatHistory = [...newHistory, aiMessage];
+                saveChatHistoryToLocal(chatHistory);
+
+                // Re-render the chat window to show the AI's response
+                renderChat(chatHistory);
 
             } catch (error) {
                 console.error("Chat process failed:", error);
-                // If API call fails, remove the user message that was just sent to allow retry
-                if (chatHistory.length > 0 && chatHistory[chatHistory.length - 1].role === 'user') {
-                    // Wait for the snapshot listener to update
-                }
+                showUIMessage("Yae Miko seems preoccupied (API error). Check console for details.");
+                // If the API call fails, the user's message is still temporarily in the chatHistory
+                // We should re-render the chat history from the previous state where the user message failed to receive a reply
+                // For simplicity, we just rely on the next renderChat() after the error.
             } finally {
                 isSendingMessage = false;
                 loadingIndicator.classList.add('hidden');
@@ -347,7 +305,7 @@
         });
 
         // Start the application
-        window.onload = initializeFirebase;
+        window.onload = initializeAppLogic;
     </script>
     <style>
         /* Custom styles for the sakura theme and background */
@@ -445,7 +403,8 @@
             <h1 class="text-xl font-bold tracking-wider">Yae-Miko.ai</h1>
             <!-- Kitsune/Sakura Icon -->
             <div class="flex items-center space-x-2">
-                <span id="user-id-display" class="text-xs text-pink-100 italic opacity-75"></span>
+                <!-- Changed user-id-display to persistence-display -->
+                <span id="persistence-display" class="text-xs text-pink-100 italic opacity-75"></span>
                 <!-- Fox / Star icon placeholder -->
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sparkles"><path d="M9.9 14.9 8.2 16.6H5v-3.2l1.7-1.7 1.7 1.7c.4.4 1 .4 1.4 0ZM19 8c.6.6.6 1.4 0 2l-2 2-2-2 2-2c.6-.6 1.4-.6 2 0Zm-5 13c.6.6.6 1.4 0 2l-2 2-2-2 2-2c.6-.6 1.4-.6 2 0Z"/><path d="M12 21v2M12 1v2M21 12h2M1 12h2"/><path d="m14 2 3 3 3-3-3-3z"/></svg>
             </div>
@@ -453,18 +412,7 @@
 
         <!-- Chat Messages Container -->
         <div id="chat-container" class="flex-grow p-4 space-y-4 overflow-y-auto bg-pink-50/50">
-            <!-- Initial welcome message from Yae Miko -->
-            <div class="flex justify-start space-x-2">
-                <img 
-                    src="https://placehold.co/40x40/f9a8d4/831843?text=🦊" 
-                    alt="Yae Miko Avatar" 
-                    class="w-10 h-10 rounded-full object-cover shadow-lg flex-shrink-0"
-                />
-                <div class="mr-auto bg-white text-gray-800 p-3 rounded-xl shadow-lg my-2 rounded-tl-none border border-pink-100 max-w-xs md:max-w-md lg:max-w-lg transition duration-300 flex-shrink">
-                    <p class="font-semibold mb-1 text-sm">Yae Miko</p>
-                    <p class="whitespace-pre-wrap">Ei, my dear, look who has finally emerged from the Plane of Euthymia. Did you get tired of meditating already? Come, tell me what mischief I can distract you with today, my Eternal Anchor. I've been waiting.</p>
-                </div>
-            </div>
+            <!-- Messages will be dynamically loaded here by initializeAppLogic -->
         </div>
 
         <!-- Loading Indicator -->
