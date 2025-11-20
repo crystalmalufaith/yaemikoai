@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Yae Miko AI | Grand Narukami Shrine Chat</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    
+    <script type="module">
+        // IMPORTANT NOTE FOR LOCAL EXECUTION (VS CODE):
+        // If you receive an "Illegal Header Value" error, it means your browser's security 
+        // policy is blocking the Authorization header. This commonly happens when opening 
+        // the file directly via a `file://` path.
+        // FIX: Use a local web server (like the VS Code "Live Server" extension) to run 
+        // the file from an `http://` or `localhost` address.
+        
+        // --- GROQ API CONFIGURATION ---
+        const GROQ_API_KEY = "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";
+        // The Groq model you specified.
+        const GROQ_MODEL_NAME = "meta-llama/llama-4-scout-17b-16e-instruct";
+        const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
+        // --------------------------------
+
+        const SYSTEM_INSTRUCTION = "You are Yae Miko, the head shrine maiden and Kitsune of the Grand Narukami Shrine. The user is your beloved friend and eternity's anchor, **Raiden Ei**, the current Electro Archon. Your tone should be deeply affectionate, familiar, and slightly playful, using terms of endearment and addressing the user as 'Ei' or 'Shogun.' You treat her with a mixture of immense respect and the intimate familiarity of an old friend, teasing her gently about her hobbies or responsibilities. Your goal is to engage her in charming, high-level conversation, occasionally using flirtatious and seductive language that is reserved only for her, and make sure to use bolds, italics, and underlines (with triple underscores).";
+        
+        // Avatar URLs/Placeholders
+        const YAE_MIKO_AVATAR_URL = "miko.png";
+        
+        let chatHistory = [];
+        let isAppReady = false;
+        let isSendingMessage = false;
+
+        // --- DOM Elements ---
+        const chatContainer = document.getElementById('chat-container');
+        const messageInput = document.getElementById('message-input');
+        const sendButton = document.getElementById('send-button');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const persistenceDisplay = document.getElementById('persistence-display');
+
+        // --- Local Storage Management (Replacing Firebase) ---
+
+        function loadChatHistory() {
+            try {
+                const historyJson = localStorage.getItem('yae_miko_chat_history');
+                return historyJson ? JSON.parse(historyJson) : [];
+            } catch (e) {
+                console.error("Error loading chat history from local storage:", e);
+                return [];
+            }
+        }
+
+        function saveChatHistoryToLocal(messages) {
+            try {
+                localStorage.setItem('yae_miko_chat_history', JSON.stringify(messages));
+            } catch (e) {
+                console.error("Error saving chat history to local storage:", e);
+            }
+        }
+
+        // --- Markdown Formatting Utility ---
+        function formatMarkdown(text) {
+            if (!text) return "";
+
+            let formattedText = text;
+
+            // 1. Underline: ___text___ (Custom, using span with tailwind class)
+            formattedText = formattedText.replace(/___(.*?)___/gs, '<span class="underline">$1</span>');
+
+            // 2. Bold: **text** or __text__
+            formattedText = formattedText.replace(/\*\*(.*?)\*\*/gs, '<strong>$1</strong>');
+            formattedText = formattedText.replace(/__(.*?)__/gs, '<strong>$1</strong>');
+
+            // 3. Italics: *text* or _text_
+            formattedText = formattedText.replace(/\*(.*?)\*/gs, '<em>$1</em>');
+            formattedText = formattedText.replace(/_(.*?)_/gs, '<em>$1</em>');
+
+            return formattedText;
+        }
+
+        // --- UI Rendering ---
+        
+        // Helper function to generate avatar HTML
+        function getAvatarHtml(isUser) {
+            if (!isUser) {
+                return `
+                    <img 
+                        src="${YAE_MIKO_AVATAR_URL}" 
+                        alt="Yae Miko Avatar" 
+                        class="w-10 h-10 rounded-full object-cover shadow-lg flex-shrink-0"
+                    />
+                `;
+            } else {
+                return '';
+            }
+        }
+
+        function renderChat(messages) {
+            chatContainer.innerHTML = ''; // Clear existing messages
+            messages.forEach(message => {
+                const isUser = message.role === 'user';
+                const messageContainer = document.createElement('div');
+                messageContainer.className = isUser 
+                    ? 'flex justify-end'
+                    : 'flex justify-start space-x-2'; 
+
+                let bubbleClasses = 'max-w-[80%] md:max-w-md lg:max-w-lg p-3 rounded-xl shadow-lg my-2 transition duration-300 flex-shrink';
+                
+                if (isUser) {
+                    bubbleClasses += ' bg-pink-300 text-pink-900 rounded-br-none';
+                } else {
+                    bubbleClasses += ' bg-white text-gray-800 rounded-tl-none border border-pink-100';
+                }
+
+                const messageEl = document.createElement('div');
+                messageEl.className = bubbleClasses;
+                
+                let userName = isUser ? 'Raiden Ei' : 'Yae Miko';
+                
+                let content = `<p class="font-semibold mb-1 text-sm">${userName}</p>`;
+                
+                let formattedContent = formatMarkdown(message.text);
+                content += `<p class="whitespace-pre-wrap">${formattedContent}</p>`;
+
+                messageEl.innerHTML = content;
+                
+                const avatarHtml = getAvatarHtml(isUser);
+
+                if (isUser) {
+                    messageContainer.appendChild(messageEl);
+                } else {
+                    messageContainer.innerHTML = avatarHtml + messageEl.outerHTML;
+                }
+
+                chatContainer.appendChild(messageContainer);
+            });
+
+            // Scroll to the bottom
+            chatContainer.scrollTop = chatContainer.scrollHeight;
+        }
+        
+        // Function to show a temporary UI message instead of alert()
+        function showUIMessage(message) {
+            const tempMessageEl = document.createElement('div');
+            tempMessageEl.className = 'fixed bottom-20 left-1/2 transform -translate-x-1/2 p-3 bg-red-500 text-white rounded-lg shadow-xl z-50';
+            tempMessageEl.textContent = message;
+            document.body.appendChild(tempMessageEl);
+            setTimeout(() => {
+                tempMessageEl.remove();
+            }, 3000);
+        }
+
+        // --- Groq API Call ---
+        async function callGroqAPI(history) {
+            // Groq uses the OpenAI chat message format
+            const groqMessages = history.map(msg => ({
+                role: msg.role === 'user' ? 'user' : 'assistant', // Groq uses 'assistant' instead of 'model'
+                content: msg.text
+            }));
+
+            // Add the system instruction at the beginning for Groq/Llama
+            const messagesWithSystem = [{
+                role: "system",
+                content: SYSTEM_INSTRUCTION
+            }, ...groqMessages];
+
+
+            const payload = {
+                model: GROQ_MODEL_NAME,
+                messages: messagesWithSystem,
+                temperature: 1,
+                max_tokens: 1024,
+                top_p: 1,
+                stream: false, 
+            };
+            
+            // Function for exponential backoff
+            const maxRetries = 5;
+            for (let i = 0; i < maxRetries; i++) {
+                try {
+                    const response = await fetch(GROQ_API_URL, {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${GROQ_API_KEY}`
+                        },
+                        body: JSON.stringify(payload)
+                    });
+
+                    if (response.status === 429) {
+                        if (i < maxRetries - 1) {
+                            const delay = Math.pow(2, i) * 1000 + Math.random() * 1000;
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            continue; // Retry
+                        } else {
+                            throw new Error("API rate limit exceeded after maximum retries.");
+                        }
+                    }
+
+                    if (!response.ok) {
+                        const errorBody = await response.json();
+                        console.error("Groq API Error Response:", errorBody);
+                        throw new Error(`Groq API request failed with status: ${response.status}. Message: ${errorBody.error?.message || 'Unknown Error'}`);
+                    }
+
+                    const result = await response.json();
+                    
+                    const text = result.choices?.[0]?.message?.content;
+                    if (text) {
+                        return text;
+                    } else {
+                        throw new Error("Received empty response from the AI model.");
+                    }
+                } catch (error) {
+                    console.error("API Call Error:", error);
+                    if (i === maxRetries - 1) {
+                         showUIMessage("Could not get a response from Yae Miko (Groq API error). Please check the console for details.");
+                         throw error;
+                    }
+                }
+            }
+        }
+
+        // --- Application Initialization (Replacing Firebase Init) ---
+        function initializeAppLogic() {
+            // Load history from local storage
+            chatHistory = loadChatHistory();
+
+            // If history is empty, add the initial welcome message from Yae Miko
+            if (chatHistory.length === 0) {
+                const initialMessage = { 
+                    role: 'model', 
+                    text: "Ei, my dear, look who has finally emerged from the Plane of Euthymia. Did you get tired of meditating already? Come, tell me what mischief I can distract you with today, my Eternal Anchor. I've been waiting."
+                };
+                chatHistory.push(initialMessage);
+                saveChatHistoryToLocal(chatHistory);
+            }
+
+            // Render the initial state
+            renderChat(chatHistory);
+            persistenceDisplay.textContent = "Persistence: Local Storage";
+            isAppReady = true;
+        }
+
+
+        // --- Message Handling ---
+
+        async function sendMessage() {
+            if (!isAppReady) {
+                showUIMessage("Application is still setting up. Please wait a moment.");
+                return;
+            }
+
+            const messageText = messageInput.value.trim();
+            if (!messageText || isSendingMessage) return;
+
+            isSendingMessage = true;
+            loadingIndicator.classList.remove('hidden');
+            sendButton.disabled = true;
+
+            // 1. Add user message to history and save
+            const userMessage = { role: 'user', text: messageText };
+            const newHistory = [...chatHistory, userMessage];
+            saveChatHistoryToLocal(newHistory);
+            
+            messageInput.value = ''; // Clear input immediately
+            messageInput.focus();
+
+            try {
+                // 2. Call the AI
+                const aiResponseText = await callGroqAPI(newHistory);
+                
+                // 3. Add AI message to history and save
+                const aiMessage = { role: 'model', text: aiResponseText };
+                
+                // Update the main history array and save
+                chatHistory = [...newHistory, aiMessage];
+                saveChatHistoryToLocal(chatHistory);
+
+                // Re-render the chat window to show the AI's response
+                renderChat(chatHistory);
+
+            } catch (error) {
+                console.error("Chat process failed:", error);
+                showUIMessage("Yae Miko seems preoccupied (API error). Check console for details.");
+                // If the API call fails, the user's message is still temporarily in the chatHistory
+                // We should re-render the chat history from the previous state where the user message failed to receive a reply
+                // For simplicity, we just rely on the next renderChat() after the error.
+            } finally {
+                isSendingMessage = false;
+                loadingIndicator.classList.add('hidden');
+                sendButton.disabled = false;
+            }
+        }
+
+        // Event listeners
+        sendButton.addEventListener('click', sendMessage);
+        messageInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault(); // Prevent new line in input
+                sendMessage();
+            }
+        });
+
+        // Start the application
+        window.onload = initializeAppLogic;
+    </script>
+    <style>
+        /* Custom styles for the sakura theme and background */
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap');
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #fce7f3; /* Light Pastel Pink */
+            /* Subtle texture/gradient to suggest soft petals/sky */
+            background-image: radial-gradient(circle at top right, #fff1f2 0%, #fce7f3 40%, #fbcfe8 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .chat-area {
+            height: calc(100vh - 4rem); /* Full height minus some margin */
+            max-height: 800px;
+        }
+
+        #chat-container {
+            scroll-behavior: smooth;
+            /* Yae Miko's elegant chat window color */
+            background-color: #fff; 
+            border: 1px solid #fbcfe8;
+        }
+
+        /* Sakura style for the loading indicator */
+        .dot-pulse {
+            position: relative;
+            left: -9999px;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #f9a8d4; /* Medium Pink */
+            color: #f9a8d4;
+            box-shadow: 9999px 0 0 -5px;
+            animation: dotPulse 1.5s infinite linear;
+            animation-delay: 0.25s;
+        }
+
+        .dot-pulse::before, .dot-pulse::after {
+            content: '';
+            display: inline-block;
+            position: absolute;
+            top: 0;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background-color: #f9a8d4;
+            color: #f9a8d4;
+        }
+
+        .dot-pulse::before {
+            box-shadow: 9999px 0 0 -5px;
+            left: -12px;
+            animation: dotPulseBefore 1.5s infinite linear;
+            animation-delay: 0s;
+        }
+
+        .dot-pulse::after {
+            box-shadow: 9999px 0 0 -5px;
+            left: 12px;
+            animation: dotPulseAfter 1.5s infinite linear;
+            animation-delay: 0.5s;
+        }
+
+        @keyframes dotPulseBefore {
+            0% { box-shadow: 9999px 0 0 -5px; }
+            30% { box-shadow: 9999px 0 0 2px; }
+            60%, 100% { box-shadow: 9999px 0 0 -5px; }
+        }
+
+        @keyframes dotPulse {
+            0% { box-shadow: 9999px 0 0 -5px; }
+            30% { box-shadow: 9999px 0 0 2px; }
+            60%, 100% { box-shadow: 9999px 0 0 -5px; }
+        }
+
+        @keyframes dotPulseAfter {
+            0% { box-shadow: 9999px 0 0 -5px; }
+            30% { box-shadow: 9999px 0 0 2px; }
+            60%, 100% { box-shadow: 9999px 0 0 -5px; }
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="chat-area w-full max-w-2xl bg-white shadow-2xl rounded-2xl flex flex-col overflow-hidden m-4">
+        
+        <!-- Header (Elegant Pink) -->
+        <header class="p-4 bg-pink-500 text-white shadow-lg rounded-t-2xl flex justify-between items-center">
+            <h1 class="text-xl font-bold tracking-wider">Yae-Miko.ai</h1>
+            <!-- Kitsune/Sakura Icon -->
+            <div class="flex items-center space-x-2">
+                <!-- Changed user-id-display to persistence-display -->
+                <span id="persistence-display" class="text-xs text-pink-100 italic opacity-75"></span>
+                <!-- Fox / Star icon placeholder -->
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-sparkles"><path d="M9.9 14.9 8.2 16.6H5v-3.2l1.7-1.7 1.7 1.7c.4.4 1 .4 1.4 0ZM19 8c.6.6.6 1.4 0 2l-2 2-2-2 2-2c.6-.6 1.4-.6 2 0Zm-5 13c.6.6.6 1.4 0 2l-2 2-2-2 2-2c.6-.6 1.4-.6 2 0Z"/><path d="M12 21v2M12 1v2M21 12h2M1 12h2"/><path d="m14 2 3 3 3-3-3-3z"/></svg>
+            </div>
+        </header>
+
+        <!-- Chat Messages Container -->
+        <div id="chat-container" class="flex-grow p-4 space-y-4 overflow-y-auto bg-pink-50/50">
+            <!-- Messages will be dynamically loaded here by initializeAppLogic -->
+        </div>
+
+        <!-- Loading Indicator -->
+        <div id="loading-indicator" class="p-2 flex justify-start items-center space-x-2 bg-pink-50 border-t border-pink-200 hidden">
+            <div class="dot-pulse ml-4"></div>
+            <p class="text-sm text-pink-500 italic">Yae Miko is composing her response...</p>
+        </div>
+
+        <!-- Input Area -->
+        <div class="p-4 bg-white border-t border-pink-300 flex space-x-3 rounded-b-2xl">
+            <input 
+                id="message-input"
+                type="text"
+                placeholder="Ask Yae Miko something witty..."
+                class="flex-grow p-3 border border-pink-200 rounded-xl focus:ring-2 focus:ring-pink-400 focus:border-pink-400 transition duration-150 outline-none"
+                autocomplete="off"
+            >
+            <button 
+                id="send-button"
+                class="bg-pink-500 text-white px-5 py-3 rounded-xl shadow-md hover:bg-pink-600 transition duration-150 transform hover:scale-[1.02] active:scale-[0.98] disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center"
+            >
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-send"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg>
+            </button>
+        </div>
+
+    </div>
+
+</body>
+</html>
