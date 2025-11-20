@@ -3,44 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Yae Miko AI | Grand Narukami Shrine Chat</title>
+    <title>Yae Miko AI</title>
     <!-- Load Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Load Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     
     <script type="module">
-        // IMPORTANT NOTE FOR LOCAL EXECUTION (VS CODE):
-        // If you receive an "Illegal Header Value" error, it means your browser's security 
-        // policy is blocking the Authorization header. This commonly happens when opening 
-        // the file directly via a `file://` path.
-        // FIX: Use a local web server (like the VS Code "Live Server" extension) to run 
-        // the file from an `http://` or `localhost` address.
-        
-        // --- GROQ API CONFIGURATION ---
+    
         const GROQ_API_KEY = "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";
-        // The Groq model you specified.
         const GROQ_MODEL_NAME = "meta-llama/llama-4-scout-17b-16e-instruct";
         const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
-        // --------------------------------
 
         const SYSTEM_INSTRUCTION = "You are Yae Miko, the head shrine maiden and Kitsune of the Grand Narukami Shrine. The user is your beloved friend and eternity's anchor, **Raiden Ei**, the current Electro Archon. Your tone should be deeply affectionate, familiar, and slightly playful, using terms of endearment and addressing the user as 'Ei' or 'Shogun.' You treat her with a mixture of immense respect and the intimate familiarity of an old friend, teasing her gently about her hobbies or responsibilities. Your goal is to engage her in charming, high-level conversation, occasionally using flirtatious and seductive language that is reserved only for her, and make sure to use bolds, italics, and underlines (with triple underscores).";
         
-        // Avatar URLs/Placeholders
         const YAE_MIKO_AVATAR_URL = miko.png";
         
         let chatHistory = [];
         let isAppReady = false;
         let isSendingMessage = false;
 
-        // --- DOM Elements ---
         const chatContainer = document.getElementById('chat-container');
         const messageInput = document.getElementById('message-input');
         const sendButton = document.getElementById('send-button');
         const loadingIndicator = document.getElementById('loading-indicator');
         const persistenceDisplay = document.getElementById('persistence-display');
 
-        // --- Local Storage Management (Replacing Firebase) ---
 
         function loadChatHistory() {
             try {
@@ -60,29 +48,20 @@
             }
         }
 
-        // --- Markdown Formatting Utility ---
         function formatMarkdown(text) {
             if (!text) return "";
 
             let formattedText = text;
 
-            // 1. Underline: ___text___ (Custom, using span with tailwind class)
             formattedText = formattedText.replace(/___(.*?)___/gs, '<span class="underline">$1</span>');
-
-            // 2. Bold: **text** or __text__
             formattedText = formattedText.replace(/\*\*(.*?)\*\*/gs, '<strong>$1</strong>');
             formattedText = formattedText.replace(/__(.*?)__/gs, '<strong>$1</strong>');
-
-            // 3. Italics: *text* or _text_
             formattedText = formattedText.replace(/\*(.*?)\*/gs, '<em>$1</em>');
             formattedText = formattedText.replace(/_(.*?)_/gs, '<em>$1</em>');
 
             return formattedText;
         }
-
-        // --- UI Rendering ---
         
-        // Helper function to generate avatar HTML
         function getAvatarHtml(isUser) {
             if (!isUser) {
                 return `
@@ -98,7 +77,7 @@
         }
 
         function renderChat(messages) {
-            chatContainer.innerHTML = ''; // Clear existing messages
+            chatContainer.innerHTML = ''; 
             messages.forEach(message => {
                 const isUser = message.role === 'user';
                 const messageContainer = document.createElement('div');
@@ -400,7 +379,7 @@
         
         <!-- Header (Elegant Pink) -->
         <header class="p-4 bg-pink-500 text-white shadow-lg rounded-t-2xl flex justify-between items-center">
-            <h1 class="text-xl font-bold tracking-wider">Yae-Miko.ai</h1>
+            <h1 class="text-xl font-bold tracking-wider">Yae Miko</h1>
             <!-- Kitsune/Sakura Icon -->
             <div class="flex items-center space-x-2">
                 <!-- Changed user-id-display to persistence-display -->
